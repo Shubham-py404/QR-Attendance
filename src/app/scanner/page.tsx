@@ -1,3 +1,4 @@
+// src/app/scanner/page.tsx
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -5,7 +6,6 @@ import { BrowserQRCodeReader, IScannerControls } from "@zxing/browser";
 import { Camera, CheckCircle, AlertTriangle, LogOut, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-// Added ALREADY_SCANNED and PROCESSING to the type definition
 type ScanStatus = "SCANNING" | "PROCESSING" | "GRANTED" | "ALREADY_SCANNED" | "INVALID" | "ERROR";
 
 export default function ScannerPage() {
@@ -17,21 +17,22 @@ export default function ScannerPage() {
   
   const isProcessing = useRef(false); 
   const lastScanned = useRef<{ id: string; time: number }>({ id: "", time: 0 });
-  const clearTimer = useRef<NodeJS.Timeout | null>(null);
+  const clearTimer = useRef<number | null>(null);
   
   const [status, setStatus] = useState<ScanStatus>("SCANNING");
   const [studentInfo, setStudentInfo] = useState({ name: "", section: "", count: 0 });
   const [message, setMessage] = useState("");
 
-  // Wrapped in useCallback to prevent stale closures and React 19 strict mode bugs
   const handleVerification = useCallback(async (qrUuid: string) => {
     const now = Date.now();
+    
+    // Anti-spam lock
     if (lastScanned.current.id === qrUuid && (now - lastScanned.current.time) < 3000) return; 
     if (isProcessing.current) return;
     
     isProcessing.current = true;
     lastScanned.current = { id: qrUuid, time: now };
-    setStatus("PROCESSING"); // Provide immediate UI feedback during network request
+    setStatus("PROCESSING");
     
     try {
       const response = await fetch("/api/verify", {
@@ -44,16 +45,17 @@ export default function ScannerPage() {
 
       if (result.status === "GRANTED") {
         setStudentInfo({ name: result.name, section: result.section, count: result.count });
-        setStatus("GRANTED");
-        navigator.vibrate?.([100]);
-      } else if (result.status === "ALREADY_SCANNED") {
-        // Now correctly catching the API's duplicate flag (NEW-03)
-        setStudentInfo({ name: result.name || "Unknown", section: result.section || "", count: result.count || 0 });
-        setStatus("ALREADY_SCANNED");
-        navigator.vibrate?.([200, 100, 200]);
+        
+        if (result.count > MAX_ENTRIES) {
+          setStatus("ALREADY_SCANNED");
+          navigator.vibrate?.([200, 100, 200]);
+        } else {
+          setStatus("GRANTED");
+          navigator.vibrate?.([100]);
+        }
       } else {
         setStatus("INVALID");
-        setMessage("INVALID PASS");
+        setMessage(result.message || "INVALID PASS");
         navigator.vibrate?.([200, 100, 200]);
       }
     } catch (error) {
@@ -62,42 +64,87 @@ export default function ScannerPage() {
     } finally {
       isProcessing.current = false;
       
-      if (clearTimer.current) clearTimeout(clearTimer.current);
-      clearTimer.current = setTimeout(() => {
+      if (clearTimer.current) window.clearTimeout(clearTimer.current);
+      
+      clearTimer.current = window.setTimeout(() => {
         setStatus("SCANNING");
         setStudentInfo({ name: "", section: "", count: 0 });
         setMessage("");
         lastScanned.current = { id: "", time: 0 }; 
-      }, 10000);
+      }, 10000); 
     }
   }, [MAX_ENTRIES]);
 
   useEffect(() => {
+    let isUnmounted = false; // Track if the user leaves while the camera is loading
     const codeReader = new BrowserQRCodeReader();
     
     const startCamera = async () => {
       try {
-        controlsRef.current = await codeReader.decodeFromVideoDevice(
-          undefined,
+        const controls = await codeReader.decodeFromConstraints(
+          {
+            audio: false,
+            video: { facingMode: "environment" },
+          },
           videoRef.current!,
           async (result) => {
             if (result) await handleVerification(result.getText());
           }
         );
-      } catch (err) {
-        setStatus("ERROR");
-        setMessage("Camera access denied.");
+
+        // RACE CONDITION CATCHER: If the user left the page while the camera 
+        // was starting up, kill the hardware immediately and abort.
+        if (isUnmounted) {
+          controls.stop();
+          return;
+        }
+
+        controlsRef.current = controls;
+      } catch (err: any) {
+        if (!isUnmounted) {
+          console.error("Camera hardware error:", err);
+          setStatus("ERROR");
+          setMessage(err?.name === 'NotAllowedError' ? "Permission Blocked by OS" : "Hardware Not Supported");
+        }
       }
     };
+    
     startCamera();
 
     return () => { 
-      controlsRef.current?.stop(); 
-      if (clearTimer.current) clearTimeout(clearTimer.current); // Prevent unmounted state updates
+      isUnmounted = true; // Mark the component as dead
+
+      // 1. Stop the ZXing Scanner
+      if (controlsRef.current) {
+        controlsRef.current.stop();
+        controlsRef.current = null;
+      }
+      
+      // 2. Hard-kill the physical camera tracks
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
+      }
+
+      // 3. Clear the UI timers
+      if (clearTimer.current) window.clearTimeout(clearTimer.current); 
     };
   }, [handleVerification]);
 
-  const handleLogout = async () => {
+const handleLogout = async () => {
+    // 1. Proactively kill the camera before changing pages
+    if (controlsRef.current) {
+      controlsRef.current.stop();
+      controlsRef.current = null;
+    }
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+
+    // 2. Process logout
     await fetch("/api/auth", { method: "DELETE" });
     router.push("/");
   };
@@ -106,7 +153,7 @@ export default function ScannerPage() {
     if (status === "GRANTED") return "bg-green-600";
     if (status === "ALREADY_SCANNED") return "bg-orange-600";
     if (status === "INVALID" || status === "ERROR") return "bg-red-600";
-    return "bg-slate-900";
+    return "bg-slate-900"; 
   };
 
   return (
@@ -123,11 +170,11 @@ export default function ScannerPage() {
           </button>
         </div>
 
-        <div className="relative w-full aspect-square bg-black rounded-2xl overflow-hidden border-4 border-slate-800 shadow-2xl">
-          <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+        <div className="relative w-full aspect-square bg-black rounded-2xl overflow-hidden border-[15px] sm:border-[30px] border-black/50 shadow-2xl">
+          {/* Added autoPlay per mobile requirements */}
+          <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
           
-          {/* Swapped massive box-shadow for a clean CSS border to fix performance (MED-11) */}
-          <div className="absolute inset-0 border-[40px] border-black/50 pointer-events-none flex items-center justify-center">
+          <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
             {(status === "SCANNING" || status === "PROCESSING") && (
               <div className="w-full h-0.5 bg-blue-500 animate-[pulse_1s_ease-in-out_infinite] shadow-[0_0_8px_2px_rgba(59,130,246,0.5)]" />
             )}
@@ -169,10 +216,10 @@ export default function ScannerPage() {
               
               <div className="mt-3 p-2 bg-orange-50 border border-orange-200 rounded-lg w-full">
                 <p className="text-orange-700 text-xs font-bold uppercase flex items-center justify-center gap-1">
-                  <AlertTriangle className="w-4 h-4" /> Pass Exhausted
+                  <AlertTriangle className="w-4 h-4" /> Limit Exceeded
                 </p>
                 <p className="text-orange-600 text-[11px] mt-1 font-medium leading-tight">
-                  This student has entered {studentInfo.count} times.
+                  This student has entered {studentInfo.count} times. (Max: {MAX_ENTRIES})
                 </p>
               </div>
             </div>

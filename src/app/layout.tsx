@@ -18,19 +18,27 @@ const geistMono = Geist_Mono({
 
 export const viewport: Viewport = {
   themeColor: "#0f172a",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false, // Prevents zooming in when tapping inputs
 };
 
-// 2. Export Metadata without themeColor
 export const metadata: Metadata = {
-  title: "Cloud Nexus Portal",
-  description: "Official entry portal for First Commit",
+  title: "Cloud Nexus Scanner",
+  description: "QR Attendance System",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "default",
+    statusBarStyle: "black-translucent",
     title: "Cloud Nexus",
   },
+  icons: {
+    apple: "/icon-192.png", // Safari uses this for the home screen icon
+  },
 };
+
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html

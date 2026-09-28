@@ -1,16 +1,27 @@
 // src/app/pass/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import Image from "next/image"; // MED-06: Fix performance
-import { Cloud, Ticket, Loader2, ShieldAlert, LogOut, CheckCircle2, Mail, Phone } from "lucide-react";
+import Image from "next/image";
+import { toPng } from "html-to-image";
+import { 
+  Cloud, 
+  Ticket, 
+  Loader2, 
+  ShieldAlert, 
+  LogOut, 
+  CheckCircle2, 
+  Mail, 
+  Phone,
+  Download
+} from "lucide-react";
 
 interface StudentRecord {
+  id?: string;
   name: string;
   section: string;
   entry_count: number;
-  id?: string;
 }
 
 export default function StudentPassPage() {
@@ -21,7 +32,9 @@ export default function StudentPassPage() {
   
   const [student, setStudent] = useState<StudentRecord | null>(null);
   const [secureQr, setSecureQr] = useState("");
+  const [isDownloading, setIsDownloading] = useState(false);
   
+  const passRef = useRef<HTMLDivElement>(null);
   const MAX_ENTRIES = parseInt(process.env.NEXT_PUBLIC_MAX_ENTRIES || "3", 10);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -41,11 +54,35 @@ export default function StudentPassPage() {
       if (!res.ok) throw new Error(data.message || "Invalid credentials.");
 
       setStudent(data.student);
-      setSecureQr(data.secureQrValue); // Highly secure HMAC string
+      setSecureQr(data.secureQrValue);
       setAppState("pass");
     } catch (err: any) {
       setError(err.message);
       setAppState("form");
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!passRef.current || !student) return;
+    
+    setIsDownloading(true);
+    try {
+      // Capture the pass div as a high-quality PNG
+      const dataUrl = await toPng(passRef.current, { 
+        quality: 1.0,
+        pixelRatio: 2, // Ensures the downloaded image is crisp on retina displays
+      });
+      
+      // Create a temporary link to trigger the browser download
+      const link = document.createElement("a");
+      const safeName = student.name.replace(/\s+/g, "-").toLowerCase();
+      link.download = `cloud-nexus-pass-${safeName}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error("Failed to download pass", err);
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -58,13 +95,9 @@ export default function StudentPassPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 font-sans">
-      {/* Subtle background glow */}
       <div
         className="pointer-events-none fixed inset-0 -z-10"
-        style={{
-          background:
-            "radial-gradient(ellipse 80% 60% at 50% -10%, rgba(99,102,241,0.12) 0%, transparent 70%)",
-        }}
+        style={{ background: "radial-gradient(ellipse 80% 60% at 50% -10%, rgba(99,102,241,0.12) 0%, transparent 70%)" }}
       />
 
       <div className="max-w-sm w-full">
@@ -99,17 +132,14 @@ export default function StudentPassPage() {
                   Registered Email
                 </label>
                 <div className="relative">
-                  <Mail
-                    size={15}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
+                  <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="email"
                     required
                     value={email}
                     disabled={appState === "loading"}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2.5 text-sm border border-slate-200 text-black rounded-xl focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 focus:outline-none transition bg-slate-50 placeholder:text-slate-300 disabled:opacity-60"
+                    className="w-full pl-9 pr-4 py-2.5 text-sm text-black  border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 focus:outline-none transition bg-slate-50 placeholder:text-slate-300 disabled:opacity-60"
                     placeholder="student@gmail.com"
                   />
                 </div>
@@ -120,17 +150,14 @@ export default function StudentPassPage() {
                   Phone Number
                 </label>
                 <div className="relative">
-                  <Phone
-                    size={15}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
+                  <Phone size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="tel"
                     required
                     value={phone}
                     disabled={appState === "loading"}
                     onChange={(e) => setPhone(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2.5 text-sm border border-slate-200 text-black rounded-xl focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 focus:outline-none transition bg-slate-50 placeholder:text-slate-300 disabled:opacity-60"
+                    className="w-full pl-9 pr-4 py-2.5 text-sm  text-black border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 focus:outline-none transition bg-slate-50 placeholder:text-slate-300 disabled:opacity-60"
                     placeholder="10-digit mobile number"
                   />
                 </div>
@@ -164,7 +191,6 @@ export default function StudentPassPage() {
         {appState === "pass" && student && (
           <div className="flex flex-col items-center animate-in fade-in zoom-in-95 duration-300">
             
-            {/* Student Verified Indicator */}
             <div className="w-full mb-3 bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
@@ -178,10 +204,12 @@ export default function StudentPassPage() {
               </span>
             </div>
 
-            {/* Custom Graphical Pass */}
-            <div className="relative w-full rounded-2xl shadow-2xl overflow-hidden border border-slate-200 bg-white">
-              {/* Pass artwork */}
-             <Image
+            {/* Target Div for html-to-image download */}
+            <div 
+              ref={passRef} 
+              className="relative w-full rounded-2xl shadow-2xl overflow-hidden border border-slate-200 bg-white"
+            >
+              <Image
                 src="/pass-bg.jpg"
                 alt="Cloud Nexus Entry Pass"
                 width={400}
@@ -192,7 +220,6 @@ export default function StudentPassPage() {
                 }`}
               />
 
-              {/* Responsive Embedded QR Code */}
               <div
                 className="absolute flex items-center justify-center bg-white p-1 rounded-sm shadow-sm"
                 style={{
@@ -203,15 +230,14 @@ export default function StudentPassPage() {
                   aspectRatio: "1/1",
                 }}
               >
-               <QRCodeSVG
-                    value={secureQr}
-                    style={{ width: "100%", height: "100%" }}
-                    level="H"
-                    fgColor={student.entry_count >= MAX_ENTRIES ? "#64748b" : "#0f172a"}
+                <QRCodeSVG
+                  value={secureQr}
+                  style={{ width: "100%", height: "100%" }}
+                  level="H"
+                  fgColor={student.entry_count >= MAX_ENTRIES ? "#64748b" : "#0f172a"}
                 />
               </div>
 
-              {/* Scanned Badge Overlay */}
               {student.entry_count >= MAX_ENTRIES && (
                 <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-[2px] flex flex-col items-center justify-center p-4">
                   <div className="bg-red-600 text-white font-black px-5 py-2 rounded-xl text-center transform -rotate-6 border-2 border-white shadow-2xl">
@@ -222,25 +248,42 @@ export default function StudentPassPage() {
               )}
             </div>
 
-            {student.entry_count > 0 ? (
+            {student.entry_count >= MAX_ENTRIES ? (
               <div className="mt-4 w-full flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 text-xs font-semibold">
                 <ShieldAlert size={16} className="shrink-0" />
                 This entry pass has already completed door verification.
               </div>
             ) : (
               <p className="text-slate-400 text-xs text-center mt-4 leading-relaxed">
-                Take a screenshot of this card to present at entry. <br />
+                Take a screenshot or download this pass to present at entry. <br />
                 The QR will be checked against the live registry.
               </p>
             )}
 
-            <button
-              onClick={handleLogout}
-              className="mt-4 flex items-center gap-1.5 text-slate-400 hover:text-slate-600 text-xs font-semibold transition-colors"
-            >
-              <LogOut size={13} />
-              Look up another pass
-            </button>
+            {/* Action Buttons */}
+            {/* Action Buttons */}
+            <div className="w-full flex flex-col items-center mt-3 gap-3">
+              
+              {/* Only show the download button if they still have entries left */}
+              {student.entry_count < MAX_ENTRIES && (
+                <button
+                  onClick={handleDownload}
+                  disabled={isDownloading}
+                  className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white font-semibold py-3 rounded-xl hover:bg-slate-800 transition-all disabled:opacity-70 text-sm shadow-md"
+                >
+                  {isDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                  {isDownloading ? "Saving Pass..." : "Download Pass"}
+                </button>
+              )}
+
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-1.5 text-slate-400 hover:text-slate-600 text-xs font-semibold transition-colors mt-2"
+              >
+                <LogOut size={13} />
+                Look up another pass
+              </button>
+            </div>
           </div>
         )}
 
