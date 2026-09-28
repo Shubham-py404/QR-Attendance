@@ -23,6 +23,41 @@ export default function ScannerPage() {
   const [studentInfo, setStudentInfo] = useState({ name: "", section: "", count: 0 });
   const [message, setMessage] = useState("");
 
+   const playFeedback = useCallback((type: "success" | "error") => {
+    // 1. Try to vibrate (Works on Android)
+    if (type === "success") navigator.vibrate?.([100]);
+    else navigator.vibrate?.([200, 100, 200]);
+
+    // 2. Play Audio Beep (Works on iOS & Android)
+    try {
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContext) return;
+      
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      gain.gain.value = 0.1; // Volume
+
+      if (type === "success") {
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(800, ctx.currentTime); // High pitch beep
+        osc.start();
+        osc.stop(ctx.currentTime + 0.1);
+      } else {
+        osc.type = "square";
+        osc.frequency.setValueAtTime(300, ctx.currentTime); // Low pitch error buzz
+        osc.start();
+        osc.stop(ctx.currentTime + 0.3);
+      }
+    } catch (err) {
+      console.error("Audio feedback failed");
+    }
+  }, []);
+
+
   const handleVerification = useCallback(async (qrUuid: string) => {
     const now = Date.now();
     
@@ -43,20 +78,20 @@ export default function ScannerPage() {
 
       const result = await response.json();
 
-      if (result.status === "GRANTED") {
+     if (result.status === "GRANTED") {
         setStudentInfo({ name: result.name, section: result.section, count: result.count });
         
         if (result.count > MAX_ENTRIES) {
           setStatus("ALREADY_SCANNED");
-          navigator.vibrate?.([200, 100, 200]);
+          playFeedback("error"); // <--- Replaced vibration
         } else {
           setStatus("GRANTED");
-          navigator.vibrate?.([100]);
+          playFeedback("success"); // <--- Replaced vibration
         }
       } else {
         setStatus("INVALID");
         setMessage(result.message || "INVALID PASS");
-        navigator.vibrate?.([200, 100, 200]);
+        playFeedback("error"); // <--- Replaced vibration
       }
     } catch (error) {
       setStatus("ERROR");
