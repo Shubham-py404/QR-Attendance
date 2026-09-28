@@ -12,17 +12,14 @@ export async function POST(request: Request) {
         if (!id || typeof id !== 'string') return NextResponse.json({ status: 'INVALID' });
 
         const parts = id.split(':');
-        if (parts.length !== 3) return NextResponse.json({ status: 'INVALID' });
+        // Now we only expect 2 parts: uuid and signature
+        if (parts.length !== 2) return NextResponse.json({ status: 'INVALID' });
 
-        const [uuid, expiryStr, signature] = parts;
+        const [uuid, signature] = parts;
 
-        if (Date.now() > parseInt(expiryStr, 10)) {
-            return NextResponse.json({ status: 'INVALID', message: 'Pass Expired' });
-        }
-
-        // Use dedicated secret (NEW-01)
+        // Use dedicated secret to verify
         const secret = process.env.QR_HMAC_SECRET!;
-        const expectedSignature = createHmac('sha256', secret).update(`${uuid}:${expiryStr}`).digest('hex');
+        const expectedSignature = createHmac('sha256', secret).update(uuid).digest('hex');
 
         if (signature !== expectedSignature) return NextResponse.json({ status: 'INVALID' });
 

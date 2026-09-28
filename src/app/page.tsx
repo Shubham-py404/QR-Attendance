@@ -72,24 +72,24 @@ const [email, setEmail] = useState("");
 
             <form onSubmit={handleVolunteerLogin} className="space-y-4">
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-black" />
                 <input
                   type="email"
                   placeholder="Volunteer Email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 border-2 border-slate-200 rounded-xl focus:border-indigo-500 focus:outline-none"
+                  className="w-full pl-10 pr-4 py-3 border-2 text-black border-slate-200 rounded-xl focus:border-indigo-500 focus:outline-none"
                   required
                 />
               </div>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-black" />
                 <input
                   type="password"
                   placeholder="Password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className={`w-full pl-10 pr-4 py-3 border-2 rounded-xl focus:outline-none ${error ? "border-red-500 bg-red-50" : "border-slate-200 focus:border-indigo-500"}`}
+                  className={`w-full pl-10 pr-4 py-3 border-2 rounded-xl text-black  focus:outline-none ${error ? "border-red-500 bg-red-50" : "border-slate-200 focus:border-indigo-500"}`}
                   required
                 />
               </div>

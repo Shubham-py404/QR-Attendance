@@ -22,10 +22,9 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, message: 'Not found' }, { status: 404 });
         }
 
-        // 4-hour expiry (MED-01) and dedicated secret (NEW-01)
+        // No expiry — valid indefinitely (NEW-01)
         const secret = process.env.QR_HMAC_SECRET!;
-        const expiry = Date.now() + (1000 * 60 * 60 * 4);
-        const payload = `${data.id}:${expiry}`;
+        const payload = data.id; // Just the ID, no timestamp
         const signature = createHmac('sha256', secret).update(payload).digest('hex');
 
         const secureQrValue = `${payload}:${signature}`;
