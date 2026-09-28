@@ -76,39 +76,75 @@ export default function ScannerPage() {
   }, [MAX_ENTRIES]);
 
   useEffect(() => {
+    let isUnmounted = false; // Track if the user leaves while the camera is loading
     const codeReader = new BrowserQRCodeReader();
     
     const startCamera = async () => {
       try {
-        // EXPLICIT MOBILE CONSTRAINTS
-        controlsRef.current = await codeReader.decodeFromConstraints(
+        const controls = await codeReader.decodeFromConstraints(
           {
             audio: false,
-            video: {
-              facingMode: "environment", // Force the rear camera on mobile
-            },
+            video: { facingMode: "environment" },
           },
           videoRef.current!,
           async (result) => {
             if (result) await handleVerification(result.getText());
           }
         );
+
+        // RACE CONDITION CATCHER: If the user left the page while the camera 
+        // was starting up, kill the hardware immediately and abort.
+        if (isUnmounted) {
+          controls.stop();
+          return;
+        }
+
+        controlsRef.current = controls;
       } catch (err: any) {
-        console.error("Camera hardware error:", err);
-        setStatus("ERROR");
-        // Surface the exact hardware error to the UI for debugging
-        setMessage(err?.name === 'NotAllowedError' ? "Permission Blocked by OS" : "Hardware Not Supported");
+        if (!isUnmounted) {
+          console.error("Camera hardware error:", err);
+          setStatus("ERROR");
+          setMessage(err?.name === 'NotAllowedError' ? "Permission Blocked by OS" : "Hardware Not Supported");
+        }
       }
     };
+    
     startCamera();
 
     return () => { 
-      controlsRef.current?.stop(); 
+      isUnmounted = true; // Mark the component as dead
+
+      // 1. Stop the ZXing Scanner
+      if (controlsRef.current) {
+        controlsRef.current.stop();
+        controlsRef.current = null;
+      }
+      
+      // 2. Hard-kill the physical camera tracks
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
+      }
+
+      // 3. Clear the UI timers
       if (clearTimer.current) window.clearTimeout(clearTimer.current); 
     };
   }, [handleVerification]);
 
-  const handleLogout = async () => {
+const handleLogout = async () => {
+    // 1. Proactively kill the camera before changing pages
+    if (controlsRef.current) {
+      controlsRef.current.stop();
+      controlsRef.current = null;
+    }
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+
+    // 2. Process logout
     await fetch("/api/auth", { method: "DELETE" });
     router.push("/");
   };

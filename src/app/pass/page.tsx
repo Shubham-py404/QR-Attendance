@@ -261,19 +261,24 @@ export default function StudentPassPage() {
             )}
 
             {/* Action Buttons */}
+            {/* Action Buttons */}
             <div className="w-full flex flex-col items-center mt-3 gap-3">
-              <button
-                onClick={handleDownload}
-                disabled={isDownloading}
-                className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white font-semibold py-3 rounded-xl hover:bg-slate-800 transition-all disabled:opacity-70 text-sm shadow-md"
-              >
-                {isDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-                {isDownloading ? "Saving Pass..." : "Download Pass"}
-              </button>
+              
+              {/* Only show the download button if they still have entries left */}
+              {student.entry_count < MAX_ENTRIES && (
+                <button
+                  onClick={handleDownload}
+                  disabled={isDownloading}
+                  className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white font-semibold py-3 rounded-xl hover:bg-slate-800 transition-all disabled:opacity-70 text-sm shadow-md"
+                >
+                  {isDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                  {isDownloading ? "Saving Pass..." : "Download Pass"}
+                </button>
+              )}
 
               <button
                 onClick={handleLogout}
-                className="flex items-center gap-1.5 text-slate-400 hover:text-slate-600 text-xs font-semibold transition-colors"
+                className="flex items-center gap-1.5 text-slate-400 hover:text-slate-600 text-xs font-semibold transition-colors mt-2"
               >
                 <LogOut size={13} />
                 Look up another pass
