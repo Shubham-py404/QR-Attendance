@@ -13,6 +13,23 @@ const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(false);
 
+
+  const handleVolunteerAccess = async () => {
+    try {
+      const res = await fetch('/api/auth');
+      const data = await res.json();
+      
+      if (data.isLoggedIn) {
+        router.push('/scanner'); // Fast-pass straight to the scanner!
+      } else {
+        setShowModal(true); // Open the login modal
+      }
+    } catch (err) {
+      setShowModal(true); // Fallback if network fails
+    }
+  };
+
+
   const handleVolunteerLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -53,7 +70,7 @@ const [email, setEmail] = useState("");
       </div>
 
       <button
-        onClick={() => setShowModal(true)}
+        onClick={handleVolunteerAccess}
         className="absolute bottom-6 right-6 bg-slate-200 hover:bg-slate-300 text-slate-600 p-3 rounded-full shadow-lg transition flex items-center justify-center"
       >
         <ShieldCheck className="w-6 h-6" />

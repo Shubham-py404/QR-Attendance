@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createClient } from '@supabase/supabase-js';
-import { SignJWT } from 'jose'; // <-- Add this import
+import { SignJWT } from 'jose';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,12 +25,13 @@ export async function POST(request: Request) {
             .setExpirationTime('12h')
             .sign(secret);
 
-        (await cookies()).set('volunteer_auth', token, {
-            path: '/',
-            maxAge: 43200,
+        const cookieStore = await cookies();
+        cookieStore.set('volunteer_token', token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
+            maxAge: 60 * 60 * 12, // 12 hours in seconds
+            path: '/',
         });
 
         return NextResponse.json({ success: true });
@@ -40,6 +41,9 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE() {
-    (await cookies()).delete('volunteer_auth');
+    (await cookies()).delete('volunteer_token');
     return NextResponse.json({ success: true });
+} export async function GET() {
+    const cookieStore = await cookies();
+    return NextResponse.json({ isLoggedIn: cookieStore.has('volunteer_token') });
 }
