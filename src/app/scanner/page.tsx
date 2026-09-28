@@ -17,7 +17,7 @@ export default function ScannerPage() {
   
   const isProcessing = useRef(false); 
   const lastScanned = useRef<{ id: string; time: number }>({ id: "", time: 0 });
-  const clearTimer = useRef<number | null>(null); // Fixed timer type for browser
+  const clearTimer = useRef<number | null>(null);
   
   const [status, setStatus] = useState<ScanStatus>("SCANNING");
   const [studentInfo, setStudentInfo] = useState({ name: "", section: "", count: 0 });
@@ -46,7 +46,6 @@ export default function ScannerPage() {
       if (result.status === "GRANTED") {
         setStudentInfo({ name: result.name, section: result.section, count: result.count });
         
-        // RE-ADDED: Frontend check for exceeded entries
         if (result.count > MAX_ENTRIES) {
           setStatus("ALREADY_SCANNED");
           navigator.vibrate?.([200, 100, 200]);
@@ -65,7 +64,6 @@ export default function ScannerPage() {
     } finally {
       isProcessing.current = false;
       
-      // RELIABLE 10-SECOND RESET
       if (clearTimer.current) window.clearTimeout(clearTimer.current);
       
       clearTimer.current = window.setTimeout(() => {
@@ -73,7 +71,7 @@ export default function ScannerPage() {
         setStudentInfo({ name: "", section: "", count: 0 });
         setMessage("");
         lastScanned.current = { id: "", time: 0 }; 
-      }, 5000); // 10 seconds before clearing the screen
+      }, 10000); 
     }
   }, [MAX_ENTRIES]);
 
@@ -82,16 +80,24 @@ export default function ScannerPage() {
     
     const startCamera = async () => {
       try {
-        controlsRef.current = await codeReader.decodeFromVideoDevice(
-          undefined,
+        // EXPLICIT MOBILE CONSTRAINTS
+        controlsRef.current = await codeReader.decodeFromConstraints(
+          {
+            audio: false,
+            video: {
+              facingMode: "environment", // Force the rear camera on mobile
+            },
+          },
           videoRef.current!,
           async (result) => {
             if (result) await handleVerification(result.getText());
           }
         );
-      } catch (err) {
+      } catch (err: any) {
+        console.error("Camera hardware error:", err);
         setStatus("ERROR");
-        setMessage("Camera access denied.");
+        // Surface the exact hardware error to the UI for debugging
+        setMessage(err?.name === 'NotAllowedError' ? "Permission Blocked by OS" : "Hardware Not Supported");
       }
     };
     startCamera();
@@ -111,7 +117,7 @@ export default function ScannerPage() {
     if (status === "GRANTED") return "bg-green-600";
     if (status === "ALREADY_SCANNED") return "bg-orange-600";
     if (status === "INVALID" || status === "ERROR") return "bg-red-600";
-    return "bg-slate-900"; // Resets back to dark blue after 10 seconds
+    return "bg-slate-900"; 
   };
 
   return (
@@ -129,7 +135,8 @@ export default function ScannerPage() {
         </div>
 
         <div className="relative w-full aspect-square bg-black rounded-2xl overflow-hidden border-[15px] sm:border-[30px] border-black/50 shadow-2xl">
-          <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+          {/* Added autoPlay per mobile requirements */}
+          <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
           
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
             {(status === "SCANNING" || status === "PROCESSING") && (
