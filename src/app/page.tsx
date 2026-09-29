@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { QrCode, ShieldCheck, ArrowRight, Lock, Mail } from "lucide-react";
+import {  ScanLine, ArrowRight, Lock, Mail } from "lucide-react";
 
 
 export default function LandingPage() {
@@ -50,71 +50,105 @@ const [email, setEmail] = useState("");
     }
   };
 
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center relative px-4">
-      <div className="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100 p-8 text-center z-10">
-        <div className="mx-auto bg-indigo-50 w-16 h-16 rounded-full flex items-center justify-center mb-6 border border-indigo-100">
-          <QrCode className="w-8 h-8 text-indigo-600" />
-        </div>
-        
-        <h1 className="text-3xl font-black text-slate-900 mb-2 tracking-tight">Cloud Nexus</h1>
-        <h2 className="text-lg font-semibold text-slate-500 mb-8 tracking-wide">FIRST COMMIT</h2>
+// ... your existing state and functions ...
 
+  return (
+    <div className="min-h-screen bg-[#131313] text-[#e5e2e1] font-sans antialiased flex flex-col items-center justify-center relative px-4">
+      
+      {/* ── Main Landing Content ── */}
+      <div className="w-full max-w-sm flex flex-col items-center z-10">
+        
+      
+
+        {/* Primary Statement */}
+        <div className="flex flex-col items-center text-center space-y-1 mb-10">
+          
+          <h1 className="text-4xl tracking-tight text-[#e5e2e1] font-light">
+            Cloud Nexus
+          </h1>
+          <p className="text-sm text-[#cfc4c5] font-light tracking-wide pt-1">
+            First Commit
+          </p>
+        </div>
+
+        {/* Action Button */}
         <button
           onClick={() => router.push("/pass")}
-          className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl hover:bg-slate-800 transition flex items-center justify-center gap-2 group shadow-md"
+          className="group w-full max-w-[280px] py-4 px-6 bg-[#e5e2e1] text-[#313030] rounded-lg flex items-center justify-center space-x-2 transition-all duration-300 hover:opacity-90 active:scale-[0.99] shadow-md"
         >
-          Get My Entry Pass
-          <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+          <span className="text-[11px] uppercase tracking-widest font-bold">Get My Entry Pass</span>
+          <ArrowRight className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1" />
         </button>
       </div>
 
+      {/* ── Floating Volunteer Scanner Button ── */}
       <button
         onClick={handleVolunteerAccess}
-        className="absolute bottom-6 right-6 bg-slate-200 hover:bg-slate-300 text-slate-600 p-3 rounded-full shadow-lg transition flex items-center justify-center"
+        className="absolute bottom-6 w-20 h-20  right-6 bg-[#1c1b1b] hover:bg-[#252525] border border-white/10 text-[#cfc4c5] hover:text-white p-3.5 rounded-full shadow-lg transition-all duration-200 active:scale-120 flex items-center justify-center group"
+        aria-label="Volunteer Scanner Access"
       >
-        <ShieldCheck className="w-6 h-6" />
+        <ScanLine className="w-10 h-10 group-hover:scale-110 transition-transform duration-300" />
       </button>
 
       {showModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in duration-200">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-[#131313] rounded-3xl border border-white/10 p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200">
+            
+            {/* Modal Header */}
             <div className="flex justify-between items-center mb-6">
-              <div className="flex items-center gap-2 text-slate-800 font-bold">
-                <ShieldCheck className="w-5 h-5 text-indigo-600" />
-                Volunteer Portal
+              <div className="flex items-center gap-2 text-[#e5e2e1] font-medium tracking-wide">
+                <ScanLine className="w-5 h-5 text-[#c6c6c6]" />
+                <span className="text-sm uppercase tracking-widest">Scanner Portal</span>
               </div>
-              <button onClick={() => { setShowModal(false); setError(false); }} className="text-slate-400 hover:text-slate-600 font-bold text-xl">&times;</button>
+              <button 
+                onClick={() => { setShowModal(false); setError(false); }} 
+                className="text-[#cfc4c5]/50 hover:text-white transition-colors text-2xl leading-none"
+              >
+                &times;
+              </button>
             </div>
 
-            <form onSubmit={handleVolunteerLogin} className="space-y-4">
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-black" />
+            {/* Login Form */}
+            <form onSubmit={handleVolunteerLogin} className="space-y-5">
+              <div>
+                <label className="block text-[10px] font-mono tracking-wider text-[#cfc4c5]/60 uppercase mb-2">
+                  Volunteer_ID
+                </label>
                 <input
                   type="email"
-                  placeholder="Volunteer Email"
+                  required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 border-2 text-black border-slate-200 rounded-xl focus:border-indigo-500 focus:outline-none"
-                  required
+                  className="w-full bg-[#1c1b1b] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-white/30 transition-colors"
+                  placeholder="Vol_Id"
                 />
               </div>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-black" />
+
+              <div>
+                <label className="block text-[10px] font-mono tracking-wider text-[#cfc4c5]/60 uppercase mb-2">
+                  Password
+                </label>
                 <input
                   type="password"
-                  placeholder="Password"
+                  required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className={`w-full pl-10 pr-4 py-3 border-2 rounded-xl text-black  focus:outline-none ${error ? "border-red-500 bg-red-50" : "border-slate-200 focus:border-indigo-500"}`}
-                  required
+                  className="w-full bg-[#1c1b1b] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-white/30 transition-colors"
+                   placeholder="pass"
                 />
               </div>
-              
-              {error && <p className="text-red-500 text-sm text-center font-medium">Invalid credentials</p>}
-              
-              <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition shadow-md">
-                Secure Login
+
+              {error && (
+                <p className="text-red-400 text-xs text-center bg-red-950/30 border border-red-900/50 p-3 rounded-xl">
+                  Invalid credentials
+                </p>
+              )}
+
+              <button 
+                type="submit" 
+                className="w-full flex items-center justify-center gap-2 bg-[#e5e2e1] text-[#0e0e0e] font-semibold py-3.5 rounded-xl hover:bg-white transition-all active:scale-[0.99] text-sm mt-4 shadow-md"
+              >
+                Authenticate
               </button>
             </form>
           </div>

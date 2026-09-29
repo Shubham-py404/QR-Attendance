@@ -3,41 +3,70 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabase';
 import { createHmac } from 'crypto';
 
-// CRIT-02 & CRIT-04 FIXED: Removed `export const runtime = 'edge'`
-
 export async function POST(request: Request) {
     try {
-        const { id } = await request.json();
+        const { qrData } = await request.json();
 
-        if (!id || typeof id !== 'string') return NextResponse.json({ status: 'INVALID' });
+        if (!qrData || typeof qrData !== 'string') return NextResponse.json({ status: 'INVALID' });
 
-        const parts = id.split(':');
-        // Now we only expect 2 parts: uuid and signature
+        const parts = qrData.split(':');
         if (parts.length !== 2) return NextResponse.json({ status: 'INVALID' });
 
         const [uuid, signature] = parts;
 
-        // Use dedicated secret to verify
+        // Verify cryptographic signature
         const secret = process.env.QR_HMAC_SECRET!;
         const expectedSignature = createHmac('sha256', secret).update(uuid).digest('hex');
 
         if (signature !== expectedSignature) return NextResponse.json({ status: 'INVALID' });
 
-        // 2. Proceed with Database Transaction
+        // Run database check-in transaction
         const { data, error } = await supabaseAdmin.rpc('process_check_in', { scan_id: uuid });
 
         if (error) throw error;
-
         if (data === 'INVALID') return NextResponse.json({ status: 'INVALID' });
-        if (data === 'ALREADY_SCANNED') return NextResponse.json({ status: 'ALREADY_SCANNED' });
+
+        // Handle ALREADY_SCANNED with student metadata
+        if (data === 'ALREADY_SCANNED' || (typeof data === 'string' && data.startsWith('ALREADY_SCANNED'))) {
+            let name = "Delegate";
+            let section = "";
+            let count = parseInt(process.env.NEXT_PUBLIC_MAX_ENTRIES || "3", 10);
+
+            if (data.includes(':')) {
+                const p = data.split(':');
+                name = p[1] || name;
+                section = p[2] || section;
+                count = parseInt(p[3], 10) || count;
+            } else {
+                // Fetch student details from the database so the scanner UI can display who it belongs to
+                const { data: student } = await supabaseAdmin
+                    .from('attendees')
+                    .select('name, section, entry_count')
+                    .eq('id', uuid)
+                    .maybeSingle();
+
+                if (student) {
+                    name = student.name;
+                    section = student.section;
+                    count = student.entry_count;
+                }
+            }
+
+            return NextResponse.json({
+                status: 'ALREADY_SCANNED',
+                name,
+                section,
+                count
+            });
+        }
 
         if (data && data.startsWith('SUCCESS:')) {
-            const parts = data.split(':');
+            const resultParts = data.split(':');
             return NextResponse.json({
                 status: 'GRANTED',
-                name: parts[1],
-                section: parts[2],
-                count: parseInt(parts[3], 10)
+                name: resultParts[1],
+                section: resultParts[2],
+                count: parseInt(resultParts[3], 10)
             });
         }
 

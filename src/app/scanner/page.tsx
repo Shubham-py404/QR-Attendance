@@ -3,172 +3,225 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { BrowserQRCodeReader, IScannerControls } from "@zxing/browser";
-import { Camera, CheckCircle, AlertTriangle, LogOut, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
-
-type ScanStatus = "SCANNING" | "PROCESSING" | "GRANTED" | "ALREADY_SCANNED" | "INVALID" | "ERROR";
+import { 
+  LogOut, 
+  QrCode, 
+  Loader2, 
+  CheckCircle2, 
+  ShieldAlert, 
+  XCircle 
+} from "lucide-react";
 
 export default function ScannerPage() {
   const router = useRouter();
-  const MAX_ENTRIES = parseInt(process.env.NEXT_PUBLIC_MAX_ENTRIES || "3", 10);
-
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
-  
-  const isProcessing = useRef(false); 
-  const lastScanned = useRef<{ id: string; time: number }>({ id: "", time: 0 });
   const clearTimer = useRef<number | null>(null);
-  
-  const [status, setStatus] = useState<ScanStatus>("SCANNING");
+
+  const [status, setStatus] = useState<"SCANNING" | "PROCESSING" | "GRANTED" | "ALREADY_SCANNED" | "INVALID" | "ERROR">("SCANNING");
   const [studentInfo, setStudentInfo] = useState({ name: "", section: "", count: 0 });
   const [message, setMessage] = useState("");
+  const MAX_ENTRIES = parseInt(process.env.NEXT_PUBLIC_MAX_ENTRIES || "3", 10);
 
-   const playFeedback = useCallback((type: "success" | "error") => {
-    // 1. Try to vibrate (Works on Android)
-    if (type === "success") navigator.vibrate?.([100]);
-    else navigator.vibrate?.([200, 100, 200]);
+  // ── Continuous Scanning & Audio Refs ──
+  const isProcessing = useRef(false); 
+  const lastScanned = useRef<{ id: string; time: number }>({ id: "", time: 0 });
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
-    // 2. Play Audio Beep (Works on iOS & Android)
+  // ── 1. Bulletproof Audio & Haptics ──
+  const playFeedback = useCallback((type: "success" | "error") => {
+    // 1. Safely trigger vibrations (Works perfectly on Android)
+    if (typeof navigator !== "undefined" && navigator.vibrate) {
+      navigator.vibrate(type === "success" ? [100] : [200, 100, 200]);
+    }
+
+    // 2. Play Audio Beep
     try {
       const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioContext) return;
+
+      // Initialize once
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new AudioContext();
+      }
+
+      const ctx = audioCtxRef.current;
       
-      const ctx = new AudioContext();
+      // Force wake-up if iOS put it to sleep
+      if (ctx.state === "suspended") {
+        ctx.resume().catch(() => {}); 
+      }
+
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
       osc.connect(gain);
       gain.connect(ctx.destination);
-      gain.gain.value = 0.1; // Volume
+      gain.gain.value = 0.1;
 
       if (type === "success") {
         osc.type = "sine";
-        osc.frequency.setValueAtTime(800, ctx.currentTime); // High pitch beep
+        osc.frequency.setValueAtTime(800, ctx.currentTime);
         osc.start();
         osc.stop(ctx.currentTime + 0.1);
       } else {
-        osc.type = "square";
-        osc.frequency.setValueAtTime(300, ctx.currentTime); // Low pitch error buzz
+        // Gentle "boop" for errors instead of a harsh buzz
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(400, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(150, ctx.currentTime + 0.25);
         osc.start();
-        osc.stop(ctx.currentTime + 0.3);
+        osc.stop(ctx.currentTime + 0.25);
       }
     } catch (err) {
-      console.error("Audio feedback failed");
+      console.error("Audio feedback failed:", err);
     }
   }, []);
 
-
-  const handleVerification = useCallback(async (qrUuid: string) => {
+  // ── 2. Continuous Verification Logic ──
+  const handleVerification = useCallback(async (qrData: string) => {
     const now = Date.now();
     
-    // Anti-spam lock
-    if (lastScanned.current.id === qrUuid && (now - lastScanned.current.time) < 3000) return; 
+    // Anti-Spam: Block the EXACT SAME pass if scanned within 3 seconds
+    if (lastScanned.current.id === qrData && (now - lastScanned.current.time) < 3000) return; 
+    
+    // Network Lock: Block overlapping API calls
     if (isProcessing.current) return;
     
     isProcessing.current = true;
-    lastScanned.current = { id: qrUuid, time: now };
-    setStatus("PROCESSING");
+    lastScanned.current = { id: qrData, time: now };
     
+    // Instant Override: A new pass was just scanned, immediately clear any active 5-second timers!
+    if (clearTimer.current) {
+      window.clearTimeout(clearTimer.current);
+      clearTimer.current = null;
+    }
+    
+    setStatus("PROCESSING");
+
     try {
-      const response = await fetch("/api/verify", {
+      const res = await fetch("/api/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: qrUuid }),
+        body: JSON.stringify({ qrData }),
       });
+      const result = await res.json();
 
-      const result = await response.json();
-
-     if (result.status === "GRANTED") {
+      if (result.status === "GRANTED") {
         setStudentInfo({ name: result.name, section: result.section, count: result.count });
-        
         if (result.count > MAX_ENTRIES) {
           setStatus("ALREADY_SCANNED");
-          playFeedback("error"); // <--- Replaced vibration
+          playFeedback("error");
         } else {
           setStatus("GRANTED");
-          playFeedback("success"); // <--- Replaced vibration
+          playFeedback("success");
         }
+      } else if (result.status === "ALREADY_SCANNED") {
+        setStudentInfo({
+          name: result.name || "Delegate",
+          section: result.section || "",
+          count: result.count || MAX_ENTRIES,
+        });
+        setStatus("ALREADY_SCANNED");
+        playFeedback("error");
       } else {
         setStatus("INVALID");
         setMessage(result.message || "INVALID PASS");
-        playFeedback("error"); // <--- Replaced vibration
+        playFeedback("error");
       }
-    } catch (error) {
+    } catch (err) {
       setStatus("ERROR");
-      setMessage("Network Error.");
+      setMessage("Network Error");
+      playFeedback("error");
     } finally {
       isProcessing.current = false;
       
-      if (clearTimer.current) window.clearTimeout(clearTimer.current);
-      
+      // Start the 5-second timer to reset the UI back to idle.
+      // If another pass is scanned before this finishes, the override above cancels this timer.
       clearTimer.current = window.setTimeout(() => {
         setStatus("SCANNING");
         setStudentInfo({ name: "", section: "", count: 0 });
         setMessage("");
         lastScanned.current = { id: "", time: 0 }; 
-      }, 10000); 
+      }, 5000); 
     }
-  }, [MAX_ENTRIES]);
+  }, [MAX_ENTRIES, playFeedback]);
 
+  // ── 3. Ref Callback Pattern (Fixes Camera Stutter) ──
+  // We store the latest handleVerification function in a ref so the camera 
+  // callback can access it WITHOUT needing it in the dependency array.
+  const verifyRef = useRef(handleVerification);
   useEffect(() => {
-    let isUnmounted = false; // Track if the user leaves while the camera is loading
+    verifyRef.current = handleVerification;
+  }, [handleVerification]);
+
+  // ── 4. Always-On Camera Initialization ──
+  useEffect(() => {
+    let isUnmounted = false;
     const codeReader = new BrowserQRCodeReader();
+    let localControls: IScannerControls | null = null;
     
     const startCamera = async () => {
+      // 100ms delay defeats React strict mode double-mounts
+      await new Promise(resolve => setTimeout(resolve, 100));
+      if (isUnmounted) return;
+
       try {
-        const controls = await codeReader.decodeFromConstraints(
+        localControls = await codeReader.decodeFromConstraints(
           {
             audio: false,
-            video: { facingMode: "environment" },
+            video: { 
+              facingMode: "environment",
+              width: { ideal: 720 },
+              height: { ideal: 720 }
+            },
           },
           videoRef.current!,
-          async (result) => {
-            if (result) await handleVerification(result.getText());
+          (result) => {
+            // CAMERA NEVER SLEEPS. If it sees a code, it passes it to verifyRef immediately.
+            if (result && !isUnmounted) {
+              verifyRef.current(result.getText());
+            }
           }
         );
 
-        // RACE CONDITION CATCHER: If the user left the page while the camera 
-        // was starting up, kill the hardware immediately and abort.
         if (isUnmounted) {
-          controls.stop();
-          return;
+          localControls.stop();
+        } else {
+          controlsRef.current = localControls;
         }
-
-        controlsRef.current = controls;
       } catch (err: any) {
         if (!isUnmounted) {
+          if (err?.name === 'AbortError' || String(err).includes('AbortError')) return;
           console.error("Camera hardware error:", err);
           setStatus("ERROR");
-          setMessage(err?.name === 'NotAllowedError' ? "Permission Blocked by OS" : "Hardware Not Supported");
+          setMessage(err?.name === 'NotAllowedError' ? "Permission Blocked" : "Hardware Error");
         }
       }
     };
     
     startCamera();
 
+    // Cleanup strictly handles shutting down hardware when leaving the page
     return () => { 
-      isUnmounted = true; // Mark the component as dead
-
-      // 1. Stop the ZXing Scanner
+      isUnmounted = true;
       if (controlsRef.current) {
         controlsRef.current.stop();
         controlsRef.current = null;
       }
-      
-      // 2. Hard-kill the physical camera tracks
+      if (localControls) {
+        localControls.stop();
+      }
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach(track => track.stop());
         videoRef.current.srcObject = null;
       }
-
-      // 3. Clear the UI timers
       if (clearTimer.current) window.clearTimeout(clearTimer.current); 
     };
-  }, [handleVerification]);
+  }, []); // <--- EMPTY DEPENDENCY ARRAY: The camera never restarts!
 
-const handleLogout = async () => {
-    // 1. Proactively kill the camera before changing pages
+  const handleLogout = async () => {
     if (controlsRef.current) {
       controlsRef.current.stop();
       controlsRef.current = null;
@@ -178,96 +231,158 @@ const handleLogout = async () => {
       stream.getTracks().forEach(track => track.stop());
       videoRef.current.srcObject = null;
     }
-
-    // 2. Process logout
     await fetch("/api/auth", { method: "DELETE" });
     router.push("/");
   };
 
-  const getBgColor = () => {
-    if (status === "GRANTED") return "bg-green-600";
-    if (status === "ALREADY_SCANNED") return "bg-orange-600";
-    if (status === "INVALID" || status === "ERROR") return "bg-red-600";
-    return "bg-slate-900"; 
-  };
-
   return (
-    <div className={`min-h-screen flex flex-col items-center justify-center p-4 transition-colors duration-300 ${getBgColor()}`}>
-      <div className="w-full max-w-md flex flex-col items-center space-y-6">
+    <div className="bg-[#0b0b0d] text-zinc-100 font-sans antialiased min-h-screen flex flex-col justify-center items-center p-0 selection:bg-sky-500/20">
+      
+      {/* Dynamic Styles for Laser & Pulse */}
+      <style dangerouslySetInnerHTML={{__html: `
+        @keyframes laserSweep {
+          0% { top: 6%; opacity: 0.2; }
+          15% { opacity: 1; }
+          85% { opacity: 1; }
+          100% { top: 94%; opacity: 0.2; }
+        }
+        .animate-laser { animation: laserSweep 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate; }
+        @keyframes pulseSoft {
+          0%, 100% { opacity: 0.9; transform: scale(1); }
+          50% { opacity: 0.45; transform: scale(0.96); }
+        }
+        .pulse-status { animation: pulseSoft 2.4s ease-in-out infinite; }
+        .reticle-corner { position: absolute; width: 22px; height: 22px; border-color: rgba(255, 255, 255, 0.85); pointer-events: none; z-index: 20; }
+      `}} />
+
+      {/* Mobile Device Wrapper */}
+      <div className="w-full max-w-[420px] min-h-screen bg-[#0b0b0d] flex flex-col justify-between px-5 pt-12 pb-8 relative overflow-hidden border-x border-white/[0.04] shadow-2xl">
         
-        <div className="text-white text-center w-full flex justify-between items-center px-2">
-          <div>
-            <h1 className="text-xl font-bold tracking-wider text-left">SCANNER</h1>
-            <p className="text-xs opacity-80 text-left">First Commit</p>
+        {/* Header */}
+        <header className="w-full flex items-center justify-between pt-1 pb-4">
+          <div className="flex flex-col space-y-1">
+            <div className="flex items-center space-x-2.5">
+              <h1 className="text-xl font-bold tracking-[0.18em] uppercase text-white leading-none">
+                SCANNER
+              </h1>
+              <div className="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-status"></span>
+                <span className="text-[10px] uppercase font-semibold tracking-wider text-emerald-300">Live</span>
+              </div>
+            </div>
+            <p className="text-xs text-zinc-400 font-normal tracking-wide">
+              Cloud Nexus · First Commit
+            </p>
           </div>
-          <button onClick={handleLogout} className="bg-white/20 p-2 rounded-full hover:bg-white/30 transition">
-            <LogOut className="w-5 h-5 text-white" />
+          <button onClick={handleLogout} className="w-10 h-10 rounded-full bg-[#1b1b1f] hover:bg-[#242429] border border-white/10 flex items-center justify-center text-zinc-300 hover:text-white transition-colors duration-150 active:scale-95">
+            <LogOut className="w-4 h-4" strokeWidth={2.2} />
           </button>
-        </div>
+        </header>
 
-        <div className="relative w-full aspect-square bg-black rounded-2xl overflow-hidden border-[15px] sm:border-[30px] border-black/50 shadow-2xl">
-          {/* Added autoPlay per mobile requirements */}
-          <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
-          
-          <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-            {(status === "SCANNING" || status === "PROCESSING") && (
-              <div className="w-full h-0.5 bg-blue-500 animate-[pulse_1s_ease-in-out_infinite] shadow-[0_0_8px_2px_rgba(59,130,246,0.5)]" />
-            )}
-          </div>
-        </div>
-
-        <div className="w-full bg-white rounded-xl p-6 shadow-xl text-center min-h-[220px] flex flex-col items-center justify-center transition-all">
-          
-          {status === "SCANNING" && (
-             <div className="flex flex-col items-center text-slate-500">
-               <Camera className="w-10 h-10 mb-2 animate-pulse" />
-               <p className="font-semibold tracking-widest text-sm">POINT AT QR CODE</p>
-             </div>
-          )}
-
-          {status === "PROCESSING" && (
-             <div className="flex flex-col items-center text-blue-600">
-               <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-3" />
-               <p className="font-bold tracking-widest text-sm">VERIFYING...</p>
-             </div>
-          )}
-
-          {status === "GRANTED" && (
-            <div className="flex flex-col items-center w-full">
-              <CheckCircle className="w-10 h-10 mb-2 text-green-600" />
-              <h2 className="text-2xl font-black text-slate-900">{studentInfo.name}</h2>
-              <p className="text-base font-bold text-slate-600">Section: {studentInfo.section}</p>
-              <div className="mt-3 px-4 py-1.5 rounded-full text-sm font-bold border-2 bg-green-100 text-green-700 border-green-300">
-                {studentInfo.count}/{MAX_ENTRIES} Entries
-              </div>
-            </div>
-          )}
-
-          {status === "ALREADY_SCANNED" && (
-            <div className="flex flex-col items-center w-full">
-              <XCircle className="w-10 h-10 mb-2 text-orange-600" />
-              <h2 className="text-2xl font-black text-slate-900">{studentInfo.name}</h2>
-              <p className="text-base font-bold text-slate-600">Section: {studentInfo.section}</p>
+        {/* Viewfinder Section */}
+        <main className="w-full flex flex-col items-center justify-center my-auto py-2">
+          <div className="relative w-full aspect-square rounded-3xl bg-[#141417] p-3.5 border border-white/[0.08] shadow-[0_12px_48px_rgba(0,0,0,0.7)] flex items-center justify-center overflow-hidden">
+            <div className="relative w-full h-full rounded-2xl bg-black overflow-hidden flex items-center justify-center border border-white/[0.06]">
               
-              <div className="mt-3 p-2 bg-orange-50 border border-orange-200 rounded-lg w-full">
-                <p className="text-orange-700 text-xs font-bold uppercase flex items-center justify-center gap-1">
-                  <AlertTriangle className="w-4 h-4" /> Limit Exceeded
-                </p>
-                <p className="text-orange-600 text-[11px] mt-1 font-medium leading-tight">
-                  This student has entered {studentInfo.count} times. (Max: {MAX_ENTRIES})
+              {/* Native Hardware Feed */}
+              <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover z-0" playsInline muted autoPlay />
+              
+              {/* Optical Vignette & Grid */}
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.4)_60%,rgba(0,0,0,0.9)_100%)] pointer-events-none z-10"></div>
+              <div className="absolute inset-0 opacity-[0.035] bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:16px_16px] z-10"></div>
+
+              {/* Targeting Reticle */}
+              <div className="relative w-[78%] h-[78%] flex items-center justify-center z-20">
+                <span className="reticle-corner top-0 left-0 border-t-2 border-l-2 rounded-tl-sm"></span>
+                <span className="reticle-corner top-0 right-0 border-t-2 border-r-2 rounded-tr-sm"></span>
+                <span className="reticle-corner bottom-0 left-0 border-b-2 border-l-2 rounded-bl-sm"></span>
+                <span className="reticle-corner bottom-0 right-0 border-b-2 border-r-2 rounded-br-sm"></span>
+                
+                <div className="absolute inset-2 border border-dashed border-white/10 rounded-lg"></div>
+
+                {/* Animated Laser (Only during active scanning) */}
+                {(status === "SCANNING" || status === "PROCESSING") && (
+                  <div className="absolute inset-x-1 animate-laser z-20 pointer-events-none">
+                    <div className="w-full h-3 bg-gradient-to-b from-sky-400/25 via-sky-400/10 to-transparent blur-sm"></div>
+                    <div className="w-full h-[2px] bg-gradient-to-r from-transparent via-sky-300 to-transparent shadow-[0_0_10px_#38bdf8]"></div>
+                  </div>
+                )}
+                
+                <div className="w-3 h-3 border-t border-l border-white/20"></div>
+              </div>
+
+              {/* Live Instruction */}
+              <div className="absolute bottom-4 z-20 px-3 py-1 rounded-full bg-black/75 backdrop-blur-md border border-white/10 shadow-lg">
+                <p className="text-[11px] font-medium tracking-wide text-zinc-300">
+                  Align QR code inside frame
                 </p>
               </div>
             </div>
-          )}
+          </div>
+        </main>
 
-          {(status === "INVALID" || status === "ERROR") && (
-            <div className="flex flex-col items-center text-red-600 w-full">
-              <AlertTriangle className="w-12 h-12 mb-2" />
-              <h2 className="text-xl font-black">{message}</h2>
-            </div>
-          )}
-        </div>
+        {/* Dynamic Action Card */}
+        <footer className="w-full mt-4 min-h-[180px]">
+          <div className="w-full h-full bg-white text-zinc-950 rounded-2xl p-5 shadow-[0_20px_40px_rgba(0,0,0,0.85)] flex flex-col items-center justify-center text-center transition-all duration-300">
+            
+            {status === "SCANNING" && (
+              <>
+                <div className="w-12 h-12 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-800 mb-3 shadow-inner">
+                  <QrCode className="w-6 h-6" strokeWidth={1.8} />
+                </div>
+                <h2 className="text-xs uppercase font-extrabold tracking-widest text-zinc-900 mb-1.5">POINT AT QR CODE</h2>
+                <p className="text-xs text-zinc-500 font-medium">Hold steady to scan the Cloud Nexus badge.</p>
+              </>
+            )}
 
+            {status === "PROCESSING" && (
+              <>
+                <div className="w-12 h-12 rounded-full bg-sky-50 flex items-center justify-center text-sky-600 mb-3 shadow-inner">
+                  <Loader2 className="w-6 h-6 animate-spin" strokeWidth={2} />
+                </div>
+                <h2 className="text-xs uppercase font-extrabold tracking-widest text-sky-700 mb-1.5">VERIFYING...</h2>
+                <p className="text-xs text-zinc-500 font-medium">Checking cryptographic signature.</p>
+              </>
+            )}
+
+            {status === "GRANTED" && (
+              <>
+                <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 mb-3 shadow-inner">
+                  <CheckCircle2 className="w-6 h-6" strokeWidth={2.5} />
+                </div>
+                <h2 className="text-lg font-black text-zinc-900 uppercase tracking-wide leading-none mb-1">{studentInfo.name}</h2>
+                <p className="text-xs text-zinc-500 font-semibold uppercase tracking-widest mb-3">SEC: {studentInfo.section}</p>
+                <div className="px-3 py-1 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-md text-[11px] font-bold uppercase tracking-wider">
+                  {studentInfo.count} / {MAX_ENTRIES} Entries Logged
+                </div>
+              </>
+            )}
+
+            {status === "ALREADY_SCANNED" && (
+              <>
+                <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 mb-3 shadow-inner">
+                  <ShieldAlert className="w-6 h-6" strokeWidth={2.5} />
+                </div>
+                <h2 className="text-lg font-black text-zinc-900 uppercase tracking-wide leading-none mb-1">{studentInfo.name}</h2>
+                <div className="px-3 py-1 bg-[#93000a] text-white rounded-md text-[11px] font-black uppercase tracking-widest mt-2 mb-2">
+                  VOIDED / EXHAUSTED
+                </div>
+                <p className="text-xs text-zinc-500 font-medium">Entered {studentInfo.count} times. (Max: {MAX_ENTRIES})</p>
+              </>
+            )}
+
+            {(status === "INVALID" || status === "ERROR") && (
+              <>
+                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center text-red-600 mb-3 shadow-inner">
+                  <XCircle className="w-6 h-6" strokeWidth={2.5} />
+                </div>
+                <h2 className="text-sm uppercase font-extrabold tracking-widest text-red-600 mb-1.5">{message}</h2>
+                <p className="text-xs text-zinc-500 font-medium">Please direct delegate to the help desk.</p>
+              </>
+            )}
+
+          </div>
+        </footer>
       </div>
     </div>
   );

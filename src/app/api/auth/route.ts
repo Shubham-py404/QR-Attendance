@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createClient } from '@supabase/supabase-js';
-import { SignJWT } from 'jose';
+import { SignJWT, jwtVerify } from 'jose';
 
 const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL!,
+    process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }
 );
 
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
         const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
         const token = await new SignJWT({ role: 'volunteer', email })
             .setProtectedHeader({ alg: 'HS256' })
-            .setExpirationTime('12h')
+            .setExpirationTime('24h')
             .sign(secret);
 
         const cookieStore = await cookies();
@@ -43,7 +43,18 @@ export async function POST(request: Request) {
 export async function DELETE() {
     (await cookies()).delete('volunteer_token');
     return NextResponse.json({ success: true });
-} export async function GET() {
+}
+export async function GET() {
     const cookieStore = await cookies();
-    return NextResponse.json({ isLoggedIn: cookieStore.has('volunteer_token') });
+    const token = cookieStore.get('volunteer_token')?.value;
+
+    if (!token) return NextResponse.json({ isLoggedIn: false });
+
+    try {
+        const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
+        await jwtVerify(token, secret);
+        return NextResponse.json({ isLoggedIn: true });
+    } catch (err) {
+        return NextResponse.json({ isLoggedIn: false });
+    }
 }
