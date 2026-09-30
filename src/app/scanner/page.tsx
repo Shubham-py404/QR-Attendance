@@ -29,29 +29,37 @@ export default function ScannerPage() {
   const lastScanned = useRef<{ id: string; time: number }>({ id: "", time: 0 });
   const audioCtxRef = useRef<AudioContext | null>(null);
 
-  // ── 1. Bulletproof Audio & Haptics ──
-  const playFeedback = useCallback((type: "success" | "error") => {
-    // 1. Safely trigger vibrations (Works perfectly on Android)
-    if (typeof navigator !== "undefined" && navigator.vibrate) {
-      navigator.vibrate(type === "success" ? [100] : [200, 100, 200]);
-    }
-
-    // 2. Play Audio Beep
-    try {
+  // ── 1. IOS Safari Audio Unlocker ──
+  useEffect(() => {
+    const initAudio = () => {
       const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioContext) return;
-
-      // Initialize once
-      if (!audioCtxRef.current) {
+      if (AudioContext && !audioCtxRef.current) {
         audioCtxRef.current = new AudioContext();
       }
-
-      const ctx = audioCtxRef.current;
-      
-      // Force wake-up if iOS put it to sleep
-      if (ctx.state === "suspended") {
-        ctx.resume().catch(() => {}); 
+      if (audioCtxRef.current?.state === "suspended") {
+        audioCtxRef.current.resume();
       }
+    };
+
+    document.addEventListener('touchstart', initAudio, { once: true });
+    document.addEventListener('click', initAudio, { once: true });
+    
+    return () => {
+      document.removeEventListener('touchstart', initAudio);
+      document.removeEventListener('click', initAudio);
+    };
+  }, []);
+
+  // ── 2. Hardware Feedback (Soft Beeps & Vibes) ──
+  const playFeedback = useCallback(async (type: "success" | "error") => {
+    if (type === "success") navigator.vibrate?.([100]);
+    else navigator.vibrate?.([200, 100, 200]);
+
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+
+    try {
+      if (ctx.state === "suspended") await ctx.resume();
 
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -66,7 +74,7 @@ export default function ScannerPage() {
         osc.start();
         osc.stop(ctx.currentTime + 0.1);
       } else {
-        // Gentle "boop" for errors instead of a harsh buzz
+        // Softer error boop (Triangle wave with pitch drop)
         osc.type = "triangle";
         osc.frequency.setValueAtTime(400, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(150, ctx.currentTime + 0.25);
@@ -74,28 +82,24 @@ export default function ScannerPage() {
         osc.stop(ctx.currentTime + 0.25);
       }
     } catch (err) {
-      console.error("Audio feedback failed:", err);
+      console.error("Audio feedback failed", err);
     }
   }, []);
 
-  // ── 2. Continuous Verification Logic ──
+  // ── 3. Continuous Verification Logic ──
   const handleVerification = useCallback(async (qrData: string) => {
     const now = Date.now();
     
-    // Anti-Spam: Block the EXACT SAME pass if scanned within 3 seconds
+    // Anti-Spam: Block the EXACT same pass from firing rapidly within 3 seconds
     if (lastScanned.current.id === qrData && (now - lastScanned.current.time) < 3000) return; 
-    
     // Network Lock: Block overlapping API calls
     if (isProcessing.current) return;
     
     isProcessing.current = true;
     lastScanned.current = { id: qrData, time: now };
     
-    // Instant Override: A new pass was just scanned, immediately clear any active 5-second timers!
-    if (clearTimer.current) {
-      window.clearTimeout(clearTimer.current);
-      clearTimer.current = null;
-    }
+    // Clear any active UI reset timers because a new scan just happened!
+    if (clearTimer.current) window.clearTimeout(clearTimer.current);
     
     setStatus("PROCESSING");
 
@@ -105,6 +109,17 @@ export default function ScannerPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ qrData }),
       });
+      
+      if (res.status === 401) {
+        setStatus("ERROR");
+        setMessage("SESSION EXPIRED. LOGGING OUT...");
+        playFeedback("error");
+        setTimeout(() => {
+          handleLogout();
+        }, 2000); // Give them 2 seconds to read the message before routing
+        return; 
+      }
+
       const result = await res.json();
 
       if (result.status === "GRANTED") {
@@ -136,8 +151,8 @@ export default function ScannerPage() {
     } finally {
       isProcessing.current = false;
       
-      // Start the 5-second timer to reset the UI back to idle.
-      // If another pass is scanned before this finishes, the override above cancels this timer.
+      // The screen will show the student info, and wait 5 seconds before clearing back to idle.
+      // BUT if another pass is scanned before 5 seconds, this timer gets cancelled by the next scan!
       clearTimer.current = window.setTimeout(() => {
         setStatus("SCANNING");
         setStudentInfo({ name: "", section: "", count: 0 });
@@ -147,27 +162,17 @@ export default function ScannerPage() {
     }
   }, [MAX_ENTRIES, playFeedback]);
 
-  // ── 3. Ref Callback Pattern (Fixes Camera Stutter) ──
-  // We store the latest handleVerification function in a ref so the camera 
-  // callback can access it WITHOUT needing it in the dependency array.
-  const verifyRef = useRef(handleVerification);
-  useEffect(() => {
-    verifyRef.current = handleVerification;
-  }, [handleVerification]);
-
   // ── 4. Always-On Camera Initialization ──
   useEffect(() => {
     let isUnmounted = false;
     const codeReader = new BrowserQRCodeReader();
-    let localControls: IScannerControls | null = null;
     
     const startCamera = async () => {
-      // 100ms delay defeats React strict mode double-mounts
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 150));
       if (isUnmounted) return;
 
       try {
-        localControls = await codeReader.decodeFromConstraints(
+        const controls = await codeReader.decodeFromConstraints(
           {
             audio: false,
             video: { 
@@ -177,19 +182,20 @@ export default function ScannerPage() {
             },
           },
           videoRef.current!,
-          (result) => {
-            // CAMERA NEVER SLEEPS. If it sees a code, it passes it to verifyRef immediately.
-            if (result && !isUnmounted) {
-              verifyRef.current(result.getText());
+          async (result) => {
+            // CAMERA NEVER SLEEPS: As long as it sees a QR code, it fires handleVerification.
+            // handleVerification's internal refs determine if it should scan it or ignore it.
+            if (result) {
+              await handleVerification(result.getText());
             }
           }
         );
 
         if (isUnmounted) {
-          localControls.stop();
-        } else {
-          controlsRef.current = localControls;
+          controls.stop();
+          return;
         }
+        controlsRef.current = controls;
       } catch (err: any) {
         if (!isUnmounted) {
           if (err?.name === 'AbortError' || String(err).includes('AbortError')) return;
@@ -202,15 +208,11 @@ export default function ScannerPage() {
     
     startCamera();
 
-    // Cleanup strictly handles shutting down hardware when leaving the page
     return () => { 
       isUnmounted = true;
       if (controlsRef.current) {
         controlsRef.current.stop();
         controlsRef.current = null;
-      }
-      if (localControls) {
-        localControls.stop();
       }
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
@@ -219,7 +221,7 @@ export default function ScannerPage() {
       }
       if (clearTimer.current) window.clearTimeout(clearTimer.current); 
     };
-  }, []); // <--- EMPTY DEPENDENCY ARRAY: The camera never restarts!
+  }, [handleVerification]);
 
   const handleLogout = async () => {
     if (controlsRef.current) {
@@ -265,10 +267,7 @@ export default function ScannerPage() {
               <h1 className="text-xl font-bold tracking-[0.18em] uppercase text-white leading-none">
                 SCANNER
               </h1>
-              <div className="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-status"></span>
-                <span className="text-[10px] uppercase font-semibold tracking-wider text-emerald-300">Live</span>
-              </div>
+             
             </div>
             <p className="text-xs text-zinc-400 font-normal tracking-wide">
               Cloud Nexus · First Commit
@@ -292,7 +291,7 @@ export default function ScannerPage() {
               <div className="absolute inset-0 opacity-[0.035] bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:16px_16px] z-10"></div>
 
               {/* Targeting Reticle */}
-              <div className="relative w-[78%] h-[78%] flex items-center justify-center z-20">
+              <div className="relative w-[98%] h-[98%] flex items-center justify-center z-20">
                 <span className="reticle-corner top-0 left-0 border-t-2 border-l-2 rounded-tl-sm"></span>
                 <span className="reticle-corner top-0 right-0 border-t-2 border-r-2 rounded-tr-sm"></span>
                 <span className="reticle-corner bottom-0 left-0 border-b-2 border-l-2 rounded-bl-sm"></span>
@@ -311,12 +310,6 @@ export default function ScannerPage() {
                 <div className="w-3 h-3 border-t border-l border-white/20"></div>
               </div>
 
-              {/* Live Instruction */}
-              <div className="absolute bottom-4 z-20 px-3 py-1 rounded-full bg-black/75 backdrop-blur-md border border-white/10 shadow-lg">
-                <p className="text-[11px] font-medium tracking-wide text-zinc-300">
-                  Align QR code inside frame
-                </p>
-              </div>
             </div>
           </div>
         </main>

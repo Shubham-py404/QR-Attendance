@@ -1,10 +1,23 @@
-// src/app/api/verify/route.ts
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { supabaseAdmin } from '../../../lib/supabase';
-import { createHmac } from 'crypto';
+import { createHmac, timingSafeEqual } from 'crypto';
+import { jwtVerify } from 'jose';
 
 export async function POST(request: Request) {
     try {
+        // 1. Authenticate the Volunteer
+        const cookieStore = await cookies();
+        const token = cookieStore.get('volunteer_token')?.value;
+        if (!token) return NextResponse.json({ status: 'ERROR', message: 'Unauthorized' }, { status: 401 });
+
+        try {
+            const jwtSecret = new TextEncoder().encode(process.env.JWT_SECRET!);
+            await jwtVerify(token, jwtSecret);
+        } catch {
+            return NextResponse.json({ status: 'ERROR', message: 'Unauthorized' }, { status: 401 });
+        }
+
         const { qrData } = await request.json();
 
         if (!qrData || typeof qrData !== 'string') return NextResponse.json({ status: 'INVALID' });
@@ -14,11 +27,26 @@ export async function POST(request: Request) {
 
         const [uuid, signature] = parts;
 
-        // Verify cryptographic signature
-        const secret = process.env.QR_HMAC_SECRET!;
+        // 2. Environment Variable Guard
+        if (!process.env.QR_HMAC_SECRET) {
+            throw new Error("Missing QR_HMAC_SECRET");
+        }
+
+        // 3. Verify cryptographic signature in Constant Time
+        const secret = process.env.QR_HMAC_SECRET;
         const expectedSignature = createHmac('sha256', secret).update(uuid).digest('hex');
 
-        if (signature !== expectedSignature) return NextResponse.json({ status: 'INVALID' });
+        // Prevent length mismatch errors in timingSafeEqual
+        if (signature.length !== expectedSignature.length) {
+            return NextResponse.json({ status: 'INVALID' });
+        }
+
+        const isValid = timingSafeEqual(
+            Buffer.from(signature),
+            Buffer.from(expectedSignature)
+        );
+
+        if (!isValid) return NextResponse.json({ status: 'INVALID' });
 
         // Run database check-in transaction
         const { data, error } = await supabaseAdmin.rpc('process_check_in', { scan_id: uuid });
@@ -38,7 +66,6 @@ export async function POST(request: Request) {
                 section = p[2] || section;
                 count = parseInt(p[3], 10) || count;
             } else {
-                // Fetch student details from the database so the scanner UI can display who it belongs to
                 const { data: student } = await supabaseAdmin
                     .from('attendees')
                     .select('name, section, entry_count')
@@ -72,6 +99,8 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ status: 'ERROR' });
     } catch (err) {
+        // 4. Log the error for visibility
+        console.error('[Verify Route Error]:', err);
         return NextResponse.json({ status: 'ERROR' }, { status: 500 });
     }
 }

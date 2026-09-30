@@ -10,12 +10,12 @@ export async function POST(request: Request) {
         if (!email || !phone || typeof email !== 'string' || typeof phone !== 'string') {
             return NextResponse.json({ success: false, message: 'Invalid input' }, { status: 400 });
         }
-
+        const cleanPhone = phone.replace(/\D/g, '');
         const { data, error } = await supabaseAdmin
             .from('attendees')
             .select('id, name, section, entry_count')
             .ilike('email', email.trim())
-            .eq('phone', phone.trim())
+            .eq('phone', cleanPhone)
             .maybeSingle();
 
         if (error || !data) {
@@ -23,6 +23,7 @@ export async function POST(request: Request) {
         }
 
         // No expiry — valid indefinitely (NEW-01)
+        if (!process.env.QR_HMAC_SECRET) throw new Error("Missing QR_HMAC_SECRET");
         const secret = process.env.QR_HMAC_SECRET!;
         const payload = data.id; // Just the ID, no timestamp
         const signature = createHmac('sha256', secret).update(payload).digest('hex');
@@ -31,6 +32,7 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ success: true, student: data, secureQrValue });
     } catch (err) {
+        console.error('[Pass Generation Error]:', err);
         return NextResponse.json({ success: false, message: 'Server error' }, { status: 500 });
     }
 }

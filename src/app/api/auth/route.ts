@@ -30,12 +30,13 @@ export async function POST(request: Request) {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
-            maxAge: 60 * 60 * 12, // 12 hours in seconds
+            maxAge: 60 * 60 * 24,
             path: '/',
         });
 
         return NextResponse.json({ success: true });
     } catch (err) {
+        console.error('[Auth POST Error]:', err);;
         return NextResponse.json({ success: false }, { status: 500 });
     }
 }

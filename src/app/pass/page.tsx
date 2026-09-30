@@ -38,42 +38,105 @@ export default function StudentPassPage() {
         body: JSON.stringify({ email, phone }),
       });
       
-      const data = await res.json();
-      
-      if (!res.ok) throw new Error(data.message || "Invalid credentials.");
+      // FIX 1: Safely handle non-JSON error responses
+      if (!res.ok) {
+        let errorMessage = "Server error. Please try again.";
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const errorData = await res.json();
+          errorMessage = errorData.message || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
 
+      const data = await res.json();
       setStudent(data.student);
       setSecureQr(data.secureQrValue);
       setAppState("pass");
     } catch (err: any) {
-      setError(err.message);
+      // Catch offline PWA network failures gracefully
+      const isOffline = err.message === 'Failed to fetch';
+      setError(isOffline ? "You are offline. Check your connection." : err.message);
       setAppState("form");
     }
   };
 
+
+  const PASS_W = 370;
+  const PASS_H = 555; // 370 × 1.5  (aspect-ratio 2/3)
+  const WRAP_W = PASS_W + 16; // passRef has p-4 (16px) on each side
+
   const handleDownload = async () => {
     if (!passRef.current || !student) return;
-    
+
     setIsDownloading(true);
     try {
-      // Capture the pass with the dark background to respect the rounded corners
-      const dataUrl = await toPng(passRef.current, { 
-        quality: 1.0,
-        pixelRatio: 3, 
-        backgroundColor: '#0e0e0e' 
+      const el    = passRef.current;
+      const badge = el.querySelector("main") as HTMLElement | null;
+
+      // ── 1. Save every style we will temporarily override ──────────────────
+      const svEl = { width: el.style.width, maxWidth: el.style.maxWidth, minWidth: el.style.minWidth };
+      let svBadge = { overflow: "", aspectRatio: "", width: "", maxWidth: "", height: "" };
+
+  
+      el.style.width    = `${WRAP_W}px`;
+      el.style.minWidth = `${WRAP_W}px`;
+      el.style.maxWidth = `${WRAP_W}px`;
+
+      // ── 3. Lock the INNER badge to canonical desktop dimensions ───────────
+      if (badge) {
+        svBadge = {
+          overflow:    badge.style.overflow,
+          aspectRatio: badge.style.aspectRatio,
+          width:       badge.style.width,
+          maxWidth:    badge.style.maxWidth,
+          height:      badge.style.height,
+        };
+        badge.style.overflow    = "visible";
+        badge.style.aspectRatio = "unset";
+        badge.style.width       = `${PASS_W}px`;
+        badge.style.maxWidth    = `${PASS_W}px`;
+        badge.style.height      = `${PASS_H}px`;
+      }
+
+      // ── 4. Two rAF ticks — ensures both reflows complete before capture ───
+      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+
+      const dataUrl = await toPng(el, {
+        quality:         1.0,
+        pixelRatio:      3,          // 3× → crisp on every display
+        backgroundColor: "#0e0e0e",
+        width:           WRAP_W,
+        height:          el.scrollHeight, // use scrollHeight for true full height after reflow
       });
-      
-      const link = document.createElement("a");
-      const safeName = student.name.split(" ")[0].toLowerCase();
-      link.download = `cloud-nexus-${safeName}.png`;
-      link.href = dataUrl;
+
+      // ── 6. Restore every style immediately — no visible flicker ───────────
+      el.style.width    = svEl.width;
+      el.style.minWidth = svEl.minWidth;
+      el.style.maxWidth = svEl.maxWidth;
+
+      if (badge) {
+        badge.style.overflow    = svBadge.overflow;
+        badge.style.aspectRatio = svBadge.aspectRatio;
+        badge.style.width       = svBadge.width;
+        badge.style.maxWidth    = svBadge.maxWidth;
+        badge.style.height      = svBadge.height;
+      }
+
+      const link      = document.createElement("a");
+      const safeName  = student.name.split(" ")[0].toLowerCase();
+      link.download   = `cloud-nexus-${safeName}.png`;
+      link.href       = dataUrl;
       link.click();
-    } catch (err) {
+      
+   } catch (err) {
       console.error("Failed to download pass", err);
+      alert("Your device prevented the image download. Please take a screenshot of this page instead.");
     } finally {
       setIsDownloading(false);
     }
   };
+
 
   const handleLogout = () => {
     setEmail("");
@@ -83,11 +146,13 @@ export default function StudentPassPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0e0e0e] text-[#e5e2e1] font-sans antialiased flex flex-col items-center justify-center p-4 sm:p-8">
+
+    <div className="min-h-screen bg-[#0e0e0e] text-[#e5e2e1] font-sans antialiased flex flex-col items-center overflow-y-auto ">
       
       {/* ══════════════ FORM STATE ══════════════ */}
       {(appState === "form" || appState === "loading") && (
-        <div className="w-full max-w-sm">
+        // Keep the login form centered vertically as before
+        <div className="w-full max-w-md flex-1 flex flex-col justify-center p-4 sm:p-8">
           <div className="text-center mb-8">
             <h1 className="text-2xl font-medium tracking-[0.18em] text-white uppercase">Cloud Nexus</h1>
             <p className="text-[10px] font-mono tracking-[0.25em] text-[#cfc4c5]/70 uppercase mt-2">
@@ -147,10 +212,11 @@ export default function StudentPassPage() {
 
       {/* ══════════════ VIP PASS STATE ══════════════ */}
       {appState === "pass" && student && (
-        <div className="flex flex-col items-center animate-in fade-in zoom-in-95 duration-500 w-full">
+
+        <div className="flex flex-col items-center animate-in fade-in zoom-in-95 duration-500 w-full pt-6 pb-10">
           
           {/* passRef captures the Lanyard AND the Card */}
-          <div ref={passRef} className="flex flex-col items-center p-4 bg-[#0e0e0e]">
+          <div ref={passRef} className="flex flex-col items-center p-2 bg-[#0e0e0e]">
             
             {/* Lanyard Hardware */}
             <aside aria-hidden="true" className="w-full max-w-[370px] flex flex-col items-center pointer-events-none select-none z-20 -mb-2.5">

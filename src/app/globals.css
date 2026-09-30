@@ -12,27 +12,3 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
   overflow-x: hidden;
 }
-
-/* Scanner Animations */
-@keyframes laserSweep {
-  0% { top: 6%; opacity: 0.2; }
-  15% { opacity: 1; }
-  85% { opacity: 1; }
-  100% { top: 94%; opacity: 0.2; }
-}
-.animate-laser { animation: laserSweep 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate; }
-
-@keyframes pulseSoft {
-  0%, 100% { opacity: 0.9; transform: scale(1); }
-  50% { opacity: 0.45; transform: scale(0.96); }
-}
-.pulse-status { animation: pulseSoft 2.4s ease-in-out infinite; }
-
-.reticle-corner {
-  position: absolute;
-  width: 22px;
-  height: 22px;
-  border-color: rgba(255, 255, 255, 0.85);
-  pointer-events: none;
-  z-index: 20;
-}
