@@ -255,7 +255,7 @@ export default function ScannerPage() {
       `}} />
 
       {/* Mobile Device Wrapper */}
-      <div className="w-full max-w-[420px] min-h-screen bg-[#0b0b0d] flex flex-col justify-between px-5 pt-12 pb-8 relative overflow-hidden border-x border-white/[0.04] shadow-2xl">
+      <div className="w-full max-w-[420px] min-h-screen bg-[#0b0b0d] flex flex-col justify-between px-5 pt-10 pb-8 relative overflow-hidden border-x border-white/[0.04] shadow-2xl">
         
         {/* Header */}
         <header className="w-full flex items-center justify-between pt-1 pb-4">
@@ -275,9 +275,10 @@ export default function ScannerPage() {
           </button>
         </header>
 
-        {/* Viewfinder Section */}
-        <main className="w-full flex flex-col items-center justify-center my-auto py-2">
-          <div className="relative w-full aspect-square rounded-3xl bg-[#141417] p-3.5 border border-white/[0.08] shadow-[0_12px_48px_rgba(0,0,0,0.7)] flex items-center justify-center overflow-hidden">
+        <div className="flex flex-col w-full flex-1 justify-center -mt-2">
+          {/* Viewfinder Section */}
+          <main className="w-full flex flex-col items-center justify-center py-2">
+            <div className="relative w-full aspect-square rounded-3xl bg-[#141417] p-3.5 border border-white/[0.08] shadow-[0_12px_48px_rgba(0,0,0,0.7)] flex items-center justify-center overflow-hidden">
             <div className="relative w-full h-full rounded-2xl bg-black overflow-hidden flex items-center justify-center border border-white/[0.06]">
               
               {/* Native Hardware Feed */}
@@ -373,6 +374,7 @@ export default function ScannerPage() {
 
           </div>
         </footer>
+        </div>
       </div>
     </div>
   );

@@ -213,7 +213,7 @@ export default function StudentPassPage() {
       {/* ══════════════ VIP PASS STATE ══════════════ */}
       {appState === "pass" && student && (
 
-        <div className="flex flex-col items-center animate-in fade-in zoom-in-95 duration-500 w-full pt-6 pb-10">
+        <div className="flex flex-col items-center animate-in fade-in zoom-in-95 duration-500 w-full pt-4 pb-4">
           
           {/* passRef captures the Lanyard AND the Card */}
           <div ref={passRef} className="flex flex-col items-center p-2 bg-[#0e0e0e]">
@@ -301,7 +301,7 @@ export default function StudentPassPage() {
           </div>
 
           {/* Action Buttons */}
-         <div className="flex flex-col items-center space-y-5 pt-8 w-full max-w-xs mx-auto">
+         <div className="flex flex-col items-center space-y-4 pt-4 w-full max-w-xs mx-auto">
             {student.entry_count < MAX_ENTRIES && (
               <button
                 onClick={handleDownload}
