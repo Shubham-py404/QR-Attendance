@@ -1,8 +1,7 @@
-// src/app/scanner/page.tsx
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { BrowserQRCodeReader, IScannerControls } from "@zxing/browser";
+import { BrowserQRCodeReader, IScannerControls ,  } from "@zxing/browser";
 import { useRouter } from "next/navigation";
 import { 
   LogOut, 
@@ -90,7 +89,7 @@ export default function ScannerPage() {
     const now = Date.now();
     
     // Anti-Spam: Block the EXACT same pass from firing rapidly within 3 seconds
-    if (lastScanned.current.id === qrData && (now - lastScanned.current.time) < 3000) return; 
+    if (lastScanned.current.id === qrData && (now - lastScanned.current.time) < 5500) return; 
     // Network Lock: Block overlapping API calls
     if (isProcessing.current) return;
     
@@ -156,14 +155,19 @@ export default function ScannerPage() {
         setStudentInfo({ name: "", section: "", count: 0 });
         setMessage("");
         lastScanned.current = { id: "", time: 0 }; 
-      }, 5000); 
+      }, 5000 ); 
     }
   }, [MAX_ENTRIES, playFeedback]);
 
   // ── 4. Always-On Camera Initialization ──
-  useEffect(() => {
+useEffect(() => {
     let isUnmounted = false;
-    const codeReader = new BrowserQRCodeReader();
+    const codeReader = new BrowserQRCodeReader(undefined, {
+      delayBetweenScanAttempts: 150,
+      delayBetweenScanSuccess: 150,
+    });
+    
+    // FIX 1: Force ZXing to process frames faster (default is often 500ms) 
     
     const startCamera = async () => {
       await new Promise(resolve => setTimeout(resolve, 150));
@@ -175,13 +179,16 @@ export default function ScannerPage() {
             audio: false,
             video: { 
               facingMode: "environment",
-              width: { ideal: 720 },
-              height: { ideal: 720 }
+              // FIX 2: Strictly cap the resolution using 'max'. This prevents
+              // new phones from choking the JavaScript thread with 4K video frames.
+              width: { ideal: 480, max: 720 },
+              height: { ideal: 480, max: 720 },
+              // FIX 3: Request continuous autofocus to stop modern lenses from "hunting"
+              advanced: [{ focusMode: "continuous" } as any] 
             },
           },
           videoRef.current!,
           async (result) => {
-
             if (result) {
               await handleVerification(result.getText());
             }
