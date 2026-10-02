@@ -66,7 +66,7 @@ export default function ScannerPage() {
 
       osc.connect(gain);
       gain.connect(ctx.destination);
-      gain.gain.value = 0.1;
+      gain.gain.value = 1.0;
 
       if (type === "success") {
         osc.type = "sine";
@@ -74,7 +74,6 @@ export default function ScannerPage() {
         osc.start();
         osc.stop(ctx.currentTime + 0.1);
       } else {
-        // Softer error boop (Triangle wave with pitch drop)
         osc.type = "triangle";
         osc.frequency.setValueAtTime(400, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(150, ctx.currentTime + 0.25);
@@ -151,8 +150,7 @@ export default function ScannerPage() {
     } finally {
       isProcessing.current = false;
       
-      // The screen will show the student info, and wait 5 seconds before clearing back to idle.
-      // BUT if another pass is scanned before 5 seconds, this timer gets cancelled by the next scan!
+
       clearTimer.current = window.setTimeout(() => {
         setStatus("SCANNING");
         setStudentInfo({ name: "", section: "", count: 0 });
@@ -183,8 +181,7 @@ export default function ScannerPage() {
           },
           videoRef.current!,
           async (result) => {
-            // CAMERA NEVER SLEEPS: As long as it sees a QR code, it fires handleVerification.
-            // handleVerification's internal refs determine if it should scan it or ignore it.
+
             if (result) {
               await handleVerification(result.getText());
             }
