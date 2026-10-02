@@ -284,8 +284,7 @@ export default function ScannerPage() {
               {/* Native Hardware Feed */}
               <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover z-0" playsInline muted autoPlay />
               
-              {/* Optical Vignette & Grid */}
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.4)_60%,rgba(0,0,0,0.9)_100%)] pointer-events-none z-10"></div>
+              {/* Grid Overlay */}
               <div className="absolute inset-0 opacity-[0.035] bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:16px_16px] z-10"></div>
 
               {/* Targeting Reticle */}
